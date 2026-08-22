@@ -16,8 +16,8 @@ This repository contains the complete RTL-to-GDS2 physical design flow for **"Th
 * **5-Stage Machine Cycle Architecture:** Features harmonized sub-modules including Program Counter (PC), Instruction ROM, Control Unit, Register File, Parameterized RAM, ALU Control, and a custom ALU.
 * **Custom Microarchitectural Extensions:** Enhanced ALU supporting traditional arithmetic/logical operations along with custom status flags (**parity, carry, and borrow**) for specialized computational error tracking.
 * **Robust Physical Implementation:** Achieves a clean 25.055% core utilization on a $500 \times 500\ \mu\text{m}$ die boundary, entirely eliminating routing congestion[cite: 1].
-* **Flawless Power Integrity:** Power Distribution Network (PDN) analysis yields a worst-case IR drop of just $37.1\ \mu\text{V}$ (**0.00% drop**), ensuring high electrical stability on the 1.8V nominal supply[cite: 1].
-* **100% Open-Source Toolchain Provenance:** Developed entirely without commercial proprietary licenses using community-standard EDA tools[cite: 1].
+* **Flawless Power Integrity:** Power Distribution Network (PDN) analysis yields a worst-case IR drop of just $37.1\ \mu\text{V}$ (**0.00% drop**), ensuring high electrical stability on the 1.8V nominal supply.
+* **100% Open-Source Toolchain Provenance:** Developed entirely without commercial proprietary licenses using community-standard EDA tools.
 
 ---
 
@@ -25,11 +25,11 @@ This repository contains the complete RTL-to-GDS2 physical design flow for **"Th
 
 | Design Phase | Tools Used | Description |
 | :--- | :--- | :--- |
-| **RTL & Functional Verification** | VS Code, Icarus Verilog, GTKWave | Behavioral compilation, testbench simulation, and `.vcd` waveform tracing[cite: 1]. |
-| **Logic Synthesis** | Yosys, SkyWater 130nm PDK (`.lib`, `.lef`) | Translates RTL into an optimized gate-level netlist (`cpu_top.v`)[cite: 1]. |
-| **Placement & Routing (P&R)** | OpenROAD | Handles floorplanning, PDN insertion, CTS, global/detailed placement, and global routing[cite: 1]. |
-| **Layout & GDSII Generation** | Magic VLSI, KLayout | Merges DEF files into standard GDSII layout streams and visualizes 3D structures[cite: 1]. |
-| **Sign-off & Verification** | KLayout DRC/LVS Engines, OpenROAD STA | Validates Layout-vs-Schematic, Design Rule Checks, and fast-corner hold timing[cite: 1]. |
+| **RTL & Functional Verification** | VS Code, Icarus Verilog, GTKWave | Behavioral compilation, testbench simulation, and `.vcd` waveform tracing. |
+| **Logic Synthesis** | Yosys, SkyWater 130nm PDK (`.lib`, `.lef`) | Translates RTL into an optimized gate-level netlist (`cpu_top.v`). |
+| **Placement & Routing (P&R)** | OpenROAD | Handles floorplanning, PDN insertion, CTS, global/detailed placement, and global routing. |
+| **Layout & GDSII Generation** | Magic VLSI, KLayout | Merges DEF files into standard GDSII layout streams and visualizes 3D structures. |
+| **Sign-off & Verification** | KLayout DRC/LVS Engines, OpenROAD STA | Validates Layout-vs-Schematic, Design Rule Checks, and fast-corner hold timing. |
 
 ---
 
@@ -75,13 +75,13 @@ This repository contains the complete RTL-to-GDS2 physical design flow for **"Th
 
 
 1. Prerequisites
-Ensure you have the open-source toolchain installed locally or inside a containerized environment (like the OpenLane/OpenROAD flow container)[cite: 1]:
+Ensure you have the open-source toolchain installed locally or inside a containerized environment (like the OpenLane/OpenROAD flow container):
 
-Icarus Verilog (iverilog, vvp)[cite: 1]
+Icarus Verilog (iverilog, vvp)
 
-GTKWave[cite: 1]
+GTKWave
 
-Yosys[cite: 1]
+Yosys
 
 
 # Clone the repository
