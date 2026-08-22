@@ -1,0 +1,97 @@
+$date
+	Wed Feb 25 12:00:11 2026
+$end
+$version
+	Icarus Verilog
+$end
+$timescale
+	1s
+$end
+$scope module stimulus $end
+$var wire 1 ! zero $end
+$var wire 8 " y [7:0] $end
+$var wire 1 # parity $end
+$var wire 1 $ invalid_op $end
+$var wire 1 % carry_out $end
+$var wire 1 & borrow $end
+$var parameter 32 ' BUS_WIDTH $end
+$var reg 8 ( a [7:0] $end
+$var reg 8 ) b [7:0] $end
+$var reg 1 * carry_in $end
+$var reg 4 + opcode [3:0] $end
+$scope module uut $end
+$var wire 8 , a [7:0] $end
+$var wire 8 - b [7:0] $end
+$var wire 1 * carry_in $end
+$var wire 4 . opcode [3:0] $end
+$var wire 1 ! zero $end
+$var wire 1 # parity $end
+$var parameter 32 / BUS_WIDTH $end
+$var parameter 32 0 OP_ADD $end
+$var parameter 32 1 OP_ADD_CARRY $end
+$var parameter 32 2 OP_AND $end
+$var parameter 32 3 OP_DEC $end
+$var parameter 32 4 OP_INC $end
+$var parameter 32 5 OP_NOT $end
+$var parameter 32 6 OP_SOL $end
+$var parameter 32 7 OP_SOR $end
+$var parameter 32 8 OP_SUB $end
+$var reg 1 & borrow $end
+$var reg 1 % carry_out $end
+$var reg 1 $ invalid_op $end
+$var reg 8 9 y [7:0] $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+$comment Show the parameter values. $end
+$dumpall
+b11 8
+b1001 7
+b1000 6
+b111 5
+b100 4
+b101 3
+b110 2
+b10 1
+b1 0
+b1000 /
+b1000 '
+$end
+#0
+$dumpvars
+bx 9
+bx .
+bx -
+bx ,
+bx +
+x*
+bx )
+bx (
+x&
+x%
+x$
+x#
+bx "
+x!
+$end
+#1
+0$
+0&
+0%
+0#
+0!
+b10011010 "
+b10011010 9
+b11001101 (
+b11001101 ,
+b1000 +
+b1000 .
+#2
+0!
+b1001000 "
+b1001000 9
+b10010001 (
+b10010001 ,
+b1001 +
+b1001 .
+#52

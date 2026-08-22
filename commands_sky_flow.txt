@@ -1,0 +1,112 @@
+/////////////////////// YOSYS LOGIC SYNTHESIS //////////////////
+
+
+# 1. READ RTL
+read_verilog divider.v
+
+# 2. ELABORATE HIERARCHY
+hierarchy -check -top divider
+
+# 3. HIGH-LEVEL SYNTHESIS
+synth -top divider
+
+# 4. TECHNOLOGY MAPPING (Flip-Flops & Gates)
+dfflibmap -liberty /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+abc -liberty /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+
+# 5. CLEANUP & OPTIMIZATION
+clean -purge
+
+# 6. WRITE GATE-LEVEL NETLIST
+write_verilog -noattr sky_netlist_divider.v
+show -colors 3
+
+# 7. PRINT STATISTICS
+stat -liberty /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+
+
+
+///////////////////////  OPENROAD   DESIGN FLOW ////////////////
+
+# 1. SETUP
+set_thread_count 7
+
+# 2. READ LIBRARIES & NETLIST
+read_lef /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef
+read_lef /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lef/sky130_fd_sc_hd.lef
+read_liberty /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+read_verilog sky_netlist_divider.v
+
+link_design  divider
+read_sdc  divider.sdc
+
+# 3. DYNAMIC FLOORPLAN (Expanded Die & Core Area)
+initialize_floorplan -die_area "0 0 500 500" \
+                     -core_area "20 20 490 490" \
+                     -site unithd
+
+# 4. EXPLICIT ROUTING TRACKS
+make_tracks li1  -x_offset 0.23 -x_pitch 0.46 -y_offset 0.17 -y_pitch 0.34
+make_tracks met1 -x_offset 0.17 -x_pitch 0.34 -y_offset 0.17 -y_pitch 0.34
+make_tracks met2 -x_offset 0.23 -x_pitch 0.46 -y_offset 0.23 -y_pitch 0.46
+make_tracks met3 -x_offset 0.34 -x_pitch 0.68 -y_offset 0.34 -y_pitch 0.68
+make_tracks met4 -x_offset 0.46 -x_pitch 0.92 -y_offset 0.46 -y_pitch 0.92
+make_tracks met5 -x_offset 1.70 -x_pitch 3.40 -y_offset 1.70 -y_pitch 3.40
+
+# 5. PINS AND POWER
+place_pins -hor_layers {met3} -ver_layers {met2}
+add_global_connection -net one_ -pin VPWR -power
+add_global_connection -net zero_ -pin VGND -ground
+global_connect
+
+# 6. INITIAL PLACEMENT
+global_placement
+detailed_placement
+
+# 7. CLOCK TREE SYNTHESIS
+set_wire_rc -layer met3
+clock_tree_synthesis -buf_list {sky130_fd_sc_hd__clkbuf_1 sky130_fd_sc_hd__clkbuf_2 sky130_fd_sc_hd__clkbuf_4} -root_buf sky130_fd_sc_hd__clkbuf_4
+
+# 8. TIMING OPTIMIZATION & LEGALIZATION
+estimate_parasitics -placement
+repair_timing -setup
+repair_timing -hold
+detailed_placement
+
+# 9. ROUTING
+global_route
+detailed_route
+
+# 10. PARASITIC EXTRACTION (OpenRCX)
+define_process_corner -ext_model_index 0 X
+extract_parasitics -ext_model_file /home/ritiz/pdk/sky130A/libs.tech/openlane/rules.openrcx.sky130A.nom.calibre
+write_spef sky_divider_routed.spef
+
+# 11. SIGN-OFF TIMING & ANALYSIS (OpenSTA)
+report_checks -path_delay min_max
+report_wns
+report_tns
+report_power
+report_design_area
+
+# 12. FINAL EXPORT
+write_def  sky_divider_routed.def
+write_db  sky_divider_routed.odb
+write_verilog  skyt_pnr_netlist_divider_t.v
+
+
+////////////////  KLAYOUT DESIGN FLOW ////////////////////////
+
+klayout -b -r merge_gds_sky.py
+
+klayout sky_cpu_top_tapeout_final.gds
+
+
+
+//////////////// FOR  GDS3D 3D gds file  VIEWER ////////////////////////
+
+
+~/GDS3D/linux/GDS3D -p ~/GDS3D/techfiles/sky130.txt -i sky_cpu_top_tapeout_final.gds -t cpu_top
+
+
+~/GDS3D/linux/GDS3D -p ~/GDS3D/techfiles/sky130.txt -i sky_cpu_top_tapeout_final.gds -t sky130_fd_sc_hd__a31o_4

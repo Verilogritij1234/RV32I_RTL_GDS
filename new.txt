@@ -1,0 +1,909 @@
+/////////////////////////////////////////////////////////////////////////
+SYNOPSYS DESIGN CONSTRAINS  FILE      SYNOPSYS DESIGN CONSTRAINST FILE   
+////////////////////////////////////////////////////////////////////////////
+
+# Define a 20ns clock (50 MHz) on the clk input port
+create_clock [get_ports clk] -period 20.0 -name clk
+
+# Set input and output delays
+set_input_delay 2.0 -clock clk [all_inputs]
+set_output_delay 2.0 -clock clk [all_outputs]
+
+# Set drive strengths and loads for SkyWater 130nm
+set_driving_cell -lib_cell sky130_fd_sc_hd__inv_2 [all_inputs]
+set_load 0.03 [all_outputs]
+
+//////////////////////////////////////////////////////////////////////////
+
+
+
+
+//////////////////////////////////////////////////////////////////////
+YOSYS             YOSYS                  YOSYS         YOSYS
+//////////////////////////////////////////////////////////////////////
+
+# 1. READ RTL
+read_verilog divider.v
+
+# 2. ELABORATE HIERARCHY
+hierarchy -check -top divider
+
+# 3. HIGH-LEVEL SYNTHESIS
+synth -top divider
+
+# 4. TECHNOLOGY MAPPING (Flip-Flops & Gates)
+dfflibmap -liberty /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+abc -liberty /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+
+# 5. TIE CELL INSERTION (Fix for TritonRoute GROUND Error)
+hilomap -hicell sky130_fd_sc_hd__conb_1 HI -locell sky130_fd_sc_hd__conb_1 LO
+
+# 6. CLEANUP & OPTIMIZATION
+clean -purge
+
+# 7. WRITE GATE-LEVEL NETLIST
+write_verilog -noattr sky_netlist_divider.v
+show -colors 3 divider
+
+# 8. PRINT STATISTICS
+stat -liberty /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+
+//////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+OPENROAD       OPENROAD           OPENROAD           OPENROAD 
+////////////////////////////////////////////////////////////////////////////
+
+# 1. SETUP
+set_thread_count 7
+
+# 2. READ LIBRARIES & NETLIST
+read_lef /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef
+read_lef /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lef/sky130_fd_sc_hd.lef
+read_liberty /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+read_verilog sky_netlist_divider.v
+
+link_design divider
+read_sdc divider.sdc
+
+# 3. DYNAMIC FLOORPLAN (Expanded Die & Core Area)
+initialize_floorplan -die_area "0 0 500 500" \
+                     -core_area "20 20 490 490" \
+                     -site unithd
+
+# 4. EXPLICIT ROUTING TRACKS
+make_tracks li1 -x_offset 0.23 -x_pitch 0.46 -y_offset 0.17 -y_pitch 0.34
+make_tracks met1 -x_offset 0.17 -x_pitch 0.34 -y_offset 0.17 -y_pitch 0.34
+make_tracks met2 -x_offset 0.23 -x_pitch 0.46 -y_offset 0.23 -y_pitch 0.46
+make_tracks met3 -x_offset 0.34 -x_pitch 0.68 -y_offset 0.34 -y_pitch 0.68
+make_tracks met4 -x_offset 0.46 -x_pitch 0.92 -y_offset 0.46 -y_pitch 0.92
+make_tracks met5 -x_offset 1.70 -x_pitch 3.40 -y_offset 1.70 -y_pitch 3.40
+
+# 5. PINS AND TAPCELLS
+place_pins -hor_layers {met3} -ver_layers {met2}
+
+# Insert Tapcells (MANDATORY for Sky130 PDN anchoring)
+tapcell -distance 14 -tapcell_master sky130_fd_sc_hd__tapvpwrvgnd_1
+
+# Connect standard cell power pins
+add_global_connection -net VPWR -inst_pattern .* -pin_pattern VPWR -power
+add_global_connection -net VGND -inst_pattern .* -pin_pattern VGND -ground
+add_global_connection -net VPWR -inst_pattern .* -pin_pattern one_ -power
+add_global_connection -net VGND -inst_pattern .* -pin_pattern zero_ -ground
+global_connect
+
+# 6. POWER DELIVERY NETWORK (PDN) GENERATION
+set_voltage_domain -name CORE -power VPWR -ground VGND
+define_pdn_grid -name stdcell_grid -starts_with POWER -voltage_domain CORE -pins {met4 met5}
+
+# THE FIX: Removed pitch/offset and added -followpins for met1!
+add_pdn_stripe -grid stdcell_grid -layer met1 -width 0.48 -followpins -starts_with POWER
+add_pdn_stripe -grid stdcell_grid -layer met4 -width 1.6 -pitch 27.2 -offset 13.6 -starts_with POWER
+add_pdn_stripe -grid stdcell_grid -layer met5 -width 1.6 -pitch 27.2 -offset 13.6 -starts_with POWER
+
+add_pdn_connect -grid stdcell_grid -layers {met1 met4}
+add_pdn_connect -grid stdcell_grid -layers {met4 met5}
+pdngen
+
+# 7. PLACEMENT & CTS
+global_placement
+detailed_placement
+set_wire_rc -layer met3
+clock_tree_synthesis -buf_list {sky130_fd_sc_hd__clkbuf_1 sky130_fd_sc_hd__clkbuf_2 sky130_fd_sc_hd__clkbuf_4} -root_buf sky130_fd_sc_hd__clkbuf_4
+
+# 8. TIMING OPTIMIZATION & LEGALIZATION
+estimate_parasitics -placement
+repair_timing -setup
+repair_timing -hold
+detailed_placement
+
+# 9. ROUTING
+global_route
+detailed_route
+
+# 10. PARASITIC EXTRACTION (OpenRCX)
+define_process_corner -ext_model_index 0 X
+extract_parasitics -ext_model_file /home/ritiz/pdk/sky130A/libs.tech/openlane/rules.openrcx.sky130A.nom.calibre
+write_spef divider_sky_routed.spef
+
+# 11. SIGN-OFF TIMING & ANALYSIS (OpenSTA)
+report_checks -path_delay min_max
+report_wns
+report_tns
+report_power
+report_design_area
+
+# 12. FINAL EXPORT
+write_def divider_sky_routed.def
+write_db divider_sky_routed.odb
+write_verilog -include_pwr_gnd pnr_netlist_divider_skyt.v
+
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+
+////////////////////////////////////////////////////////////////////////////
+MAGIC VLSI: DEF TO GDS MERGING (Replacing KLayout)    MAGIC VLSI: DEF TO GDS MERGING (Replacing KLayout)
+////////////////////////////////////////////////////////////////////////////////////
+# generate_gds.tcl
+
+# 1. Read the LEF files so Magic understands the routing vias (Fixes the M1M2_PR warnings)
+lef read /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef
+lef read /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lef/sky130_fd_sc_hd.lef
+
+# 2. Read your routed DEF file from OpenROAD
+def read divider_sky_routed.def
+
+# 3. Read the actual physical GDSII polygons of the Sky130 standard cells
+gds read /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/gds/sky130_fd_sc_hd.gds
+
+# 4. Write the final flattened GDSII tapeout file
+gds write divider_sky_tapeout_final.gds
+
+# 5. Exit
+quit
+
+
+#command: magic -dnull -noconsole -rcfile /home/ritiz/pdk/sky130A/libs.tech/magic/sky130A.magicrc gds.tcl
+
+#klayout -l /home/ritiz/pdk/sky130A/libs.tech/klayout/tech/sky130A.lyp divider_sky_tapeout_final.gds
+
+#klayout divider_sky_tapeout_final.gds
+
+////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////
+DRC CHECKS USING  MAGIC VLSI TOOL           DRC CHECKS USING  MAGIC VLSI TOOL  
+///////////////////////////////////////////////////////////////////////
+#make a file:  run_magic.tcl
+
+# 1. Load Tech File
+tech load /home/ritiz/pdk/sky130A/libs.tech/magic/sky130A.tech -noprompt
+source /home/ritiz/pdk/sky130A/libs.tech/magic/sky130A.tcl
+
+# 2. LOAD LEFS FIRST (This prevents the missing via errors!)
+lef read /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef
+lef read /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lef/sky130_fd_sc_hd.lef
+
+# 3. Read DEF file
+def read divider_sky_routed.def
+load divider
+
+# 4. Read GDS to fill in physical transistors
+gds read /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/gds/sky130_fd_sc_hd.gds
+
+# 5. Save Final GDS
+gds write divider_tapeout_magic_final.gds
+
+# 6. DRC Check
+select top cell
+expand
+drc catchup
+set drc_count [drc list count total]
+puts "✅ Total DRC Errors: $drc_count"
+# --- ANTENNA SIGN-OFF CHECK ---
+puts "Running Magic Antenna Rules Check..."
+antennacheck
+# This will log any antenna violations to your terminal or report file
+# 7. Extract SPICE for LVS
+extract do local
+extract all
+ext2spice lvs
+ext2spice -o divider_extracted.spice
+
+# 8. Exit
+quit -noprompt
+
+
+#commands:  magic -dnull -noconsole -norc run_magic.tcl
+
+/////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////
+NETGEN FOR LVS CHECKS          NETGEN FOR LVS CHECKS    
+//////////////////////////////////////////////////////////////////////////
+#create a file named run_netgen.tcl
+
+
+# 1. Read the Skywater 130nm Standard Cell SPICE library
+readnet spice /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/spice/sky130_fd_sc_hd.spice
+
+# 2. Read your extracted layout
+readnet spice divider_extracted.spice
+
+# 3. Read your OpenROAD powered Verilog
+readnet verilog pnr_netlist_divider_skyt.v
+
+# 4. Ignore the physical Tap Cell so device counts match
+ignore class sky130_fd_sc_hd__tapvpwrvgnd_1
+
+# 5. Declare global power nets so Netgen bridges the netlist gap
+global VPWR VGND VPB VNB
+
+# 6. Flatten the hierarchy to match extracted layout style
+flatten divider
+
+# 7. Run LVS
+lvs "divider_extracted.spice divider" "pnr_netlist_divider_skyt.v divider" /home/ritiz/pdk/sky130A/libs.tech/netgen/sky130A_setup.tcl comp.out
+
+quit
+
+
+#command:    netgen -batch source run_netgen.tcl
+
+
+///////////////////////////////////////////////////////////////
+
+
+
+
+//////////////////////////////////////////////////////////////
+FINAL STATIC TIMING VERIFICATION BEOFORE SIGNOFF THE CHIP 
+///////////////////////////////////////////////////////////////
+
+# create a file signoff_sta.tcl
+
+# ====================================================
+# Multi-Corner Static Timing Analysis (STA) Sign-off
+# ====================================================
+
+# 1. Read Technology LEF and Cell LEFs
+read_lef /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef
+read_lef /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lef/sky130_fd_sc_hd.lef
+
+# 2. Read Liberty Timing Library (Slow Corner for Setup / Max Delay)
+read_liberty /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__ss_100C_1v60.lib
+
+# 3. Read the Routed DEF (Loads your physical design layout)
+read_def divider_sky_routed.def
+
+# 4. Read Constraints & Extracted Parasitics (SPEF)
+read_sdc divider.sdc
+read_spef divider_sky_routed.spef
+
+# 5. Run Complete Sign-off Reports
+puts "===================================================="
+puts "       RUNNING FULL SIGN-OFF STA & METRICS          "
+puts "===================================================="
+
+report_checks -path_delay min_max
+puts ""
+puts "--- Timing Slack Summary ---"
+report_wns
+report_tns
+
+puts ""
+puts "--- Power & Area Sign-off ---"
+report_power
+report_design_area
+
+exit
+
+
+
+#command: openroad signoff_sta.tcl
+
+////////////////////////////////////////////////////////////////////////////
+
+
+
+
+/////////////////////////////////////////////////////////////////////////
+SDF   FILE   GENERATION               SDF   FILE   GENERATION    
+///////////////////////////////////////////////////////////////////////////
+
+# extract_sdf.tcl
+
+# 1. Read the SkyWater 130nm Tech LEF and Cell LEF
+read_lef /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef
+read_lef /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lef/sky130_fd_sc_hd.lef
+
+# 2. Read the SkyWater 130nm Timing Library (Liberty file)
+read_liberty /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+
+# 3. Read your Routed Layout 
+read_def divider_sky_routed.def
+
+# 4. Extract Real Parasitics (OpenRCX)
+# We define a process corner and tell OpenROAD to extract delays from detailed routing
+define_process_corner -ext_model_index 0 X
+extract_parasitics -ext_model_file /home/ritiz/pdk/sky130A/libs.tech/openlane/rules.openrcx.sky130A.nom.calibre
+
+# 5. Generate the SDF File!
+write_sdf divider_sky_routed.sdf
+puts "✅ SDF Generation Complete: sky_divider.sdf"
+
+
+#COMMAND:  openroad extract_sdf.tcl
+
+///////////////////////////////////////////////////////////////////////////////
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////
+Timing Sign-off: Gate-Level Simulation (GLS)      Timing Sign-off: Gate-Level Simulation (GLS)
+/////////////////////////////////////////////////////////////////////////////
+
+initial begin
+    $dumpfile("gls_trace.vcd");
+    $dumpvars(0, sky_divider_tb);
+    // Inject the physical SDF delays into the testbench
+    $sdf_annotate("divider_sky_routed.sdf", uut);
+end
+
+
+iverilog -o gls_sim sky_divider_tb.v sky_netlist_divider.v /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/verilog/primitives.v /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/verilog/sky130_fd_sc_hd.v
+
+
+Execute the compiled simulation binary:
+
+simulation_commands : vvp gls_sim
+
+
+Open the generated VCD file in GTKWave to inspect the
+ hardware-accurate timing behavior:
+
+gtkwave gls_trace.vcd &
+
+
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////
+Step 1: Run Sign-Off Timing & SDF Extraction
+Run your STA and OpenRCX extraction to verify timing at the slow corner
+ and generate your delay files:
+///////////////////////////////////////////////////////////////////////////////
+
+openroad signoff_sta.tcl
+openroad extract_sdf.tcl
+
+Goal: Verify that your WNS (Worst Negative Slack) is >= 0.
+ (meeting your 20ns clock constraint).
+ Goal Check: 1. Open comp.out for LVS and confirm 
+ it says: Result: Circuits match uniquely.
+////////////////////////////////////////////////////////////////
+
+
+
+/////////////////////////////////////////////////////////////////////////
+Step 2: Run Sign-Off Physical Verification (DRC, LVS, Antenna)
+Execute your Magic automation script and Netgen script:
+///////////////////////////////////////////////////////////
+
+magic -dnull -noconsole -norc run_magic.tcl
+netgen -batch source run_netgen.tcl
+
+
+2. Check your Magic terminal output to 
+ensure DRC Errors = 0 and Antenna Errors = 0.
+////////////////////////////////////////////////////////////////////
+
+
+
+
+/////////////////////////////////////////////////////////////////
+ STEP1::::::DUMMY METAL FILL (FOR CMP VERIFICATION)
+///////////////////////////////////////////////////////////////////
+
+#   create file   run_magic_fill.tcl
+
+# 1. Load the Tech File
+tech load /home/ritiz/pdk/sky130A/libs.tech/magic/sky130A.tech -noprompt
+
+# 2. Read your final taped-out GDS
+gds read dsp_engine_tapeout_magic_final.gds
+load dsp_engine
+
+# 3. Tell Magic to use the specialized Sky130 Waffle Fill Generator
+cif ostyle wafflefill(tiled)
+
+# 4. Write ONLY the dummy fill to a new, separate GDS file
+gds write dsp_engine_fill_only.gds
+
+quit -noprompt
+
+
+#command:  magic -dnull -noconsole -norc run_magic_fill.tcl
+
+
+
+
+
+#   create a file  merge.rb
+# This script tells KLayout how to safely stack two GDS files on top of each other
+
+layout = RBA::Layout.new
+
+# Read both the main design and the dummy fill GDS files
+layout.read($in_gds1)
+layout.read($in_gds2)
+
+# Create a master wrapper cell to hold both
+top_cell = layout.create_cell("DSP_ENGINE_TAPEOUT_TOP")
+
+# Take the top cells from both files and insert them into the new wrapper
+layout.top_cells.each do |cell|
+  if cell.name != "DSP_ENGINE_TAPEOUT_TOP"
+    top_cell.insert(RBA::CellInstArray.new(cell.cell_index, RBA::Trans.new))
+  end
+end
+
+# Save the final merged output
+layout.write($out_gds)
+
+
+# command:    klayout -b -r merge.rb -rd in_gds1=dsp_engine_tapeout_magic_final.gds -rd in_gds2=dsp_engine_fill_only.gds -rd out_gds=dsp_engine_TAPE_OUT_READY.gds
+
+#command: klayout -l /home/ritiz/pdk/sky130A/libs.tech/klayout/tech/sky130A.lyp dsp_engine_TAPE_OUT_READY.gds
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////
+STEP2:::::: FAST-CORNER HOLD Time Sign-off (STA)
+//////////////////////////////////////////////////////////////////////////////////
+# signoff_hold.tcl
+set_thread_count 7
+
+# 1. Read Technology and Fast-Fast Liberty Library
+read_lef /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef
+read_lef /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lef/sky130_fd_sc_hd.lef
+read_liberty /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__ff_n40C_1v95.lib
+
+# 2. Read Routed Design and Parasitics
+read_def dsp_engine_sky_routed.def
+read_sdc dsp_engine.sdc
+read_spef dsp_engine_sky_routed.spef
+
+# 3. Report Hold Timing (Min Path)
+puts "===================================================="
+puts "       FAST CORNER HOLD TIMING CHECK (-40C)         "
+puts "===================================================="
+report_checks -path_delay min
+report_wns
+exit
+
+
+#command   openroad signoff_hold.tcl
+
+
+///////////////////////////////////////////////////////////////////////////////
+
+
+
+//////////////////////////////////////////////////////////////////////////////
+STEP3:::::::::  EMIR Analysis (IR Drop)
+///////////////////////////////////////////////////////////////////////////////
+# run_emir.tcl
+# 1. Load Design
+read_lef /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef
+read_lef /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lef/sky130_fd_sc_hd.lef
+read_liberty /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+read_def dsp_engine_sky_routed.def
+read_sdc dsp_engine.sdc
+
+# 2. Define Voltage Sources for the Power Delivery Network
+set_voltage_domain -name CORE -power VPWR -ground VGND
+
+# 3. Run Static IR Drop Analysis on Power and Ground
+puts "===================================================="
+puts "               POWER NET (VPWR) IR DROP             "
+puts "===================================================="
+analyze_power_grid -net VPWR -voltage 1.8
+
+puts "===================================================="
+puts "              GROUND NET (VGND) BOUNCE              "
+puts "===================================================="
+analyze_power_grid -net VGND -voltage 0.0
+
+exit
+
+# command: openroad run_emir.tcl
+
+////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+\\\\\\\\\\\\\\\\\\\\\\\\\\\\NOT WORKING CORRECTLY\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+///////////////////////////////////////////////////////////////////////////////
+STEP4::::::::::::::Logic Equivalence Checking (LEC)
+////////////////////////////////////////////////////////////////////////////////
+
+
+# run_lec.ys
+
+# 1. Load Standard Cell Logic from Liberty
+read_liberty -lib /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+
+# Load our clean, auto-generated blackbox declarations
+read_verilog -lib sky130_hd_blackboxes.v
+
+# 2. Load ORIGINAL RTL (The "Gold" Standard)
+read_verilog dsp_engine.v
+prep -top dsp_engine
+splitnets -ports; design -stash gold
+
+# 3. Load SYNTHESIZED NETLIST (The "Gate" Version)
+read_verilog sky_netlist_dsp_engine.v
+prep -top dsp_engine
+splitnets -ports; design -stash gate
+
+# 4. Prove Equivalence
+design -copy-from gold -as gold dsp_engine
+design -copy-from gate -as gate dsp_engine
+equiv_make gold gate equiv
+prep -top equiv
+
+puts "===================================================="
+puts "              RUNNING FORMAL PROOFS                 "
+puts "===================================================="
+equiv_simple
+equiv_induct
+equiv_status -assert
+
+
+#  command:  yosys run_lec.ys
+
+////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////
+Step 5:::::::: Building the I/O Pad Ring (Connecting to the Real World)
+///////////////////////////////////////////////////////////////////////////////////
+
+// dsp_chip_top.v
+// Top-Level Padframe Wrapper for the DSP Engine
+
+module dsp_chip_top (
+    // External Physical Pins (These are what you solder to on the PCB)
+    inout  PAD_CLK,
+    inout  PAD_RESET,
+    inout  PAD_START,
+    inout  [15:0] PAD_DATA_IN_A,
+    inout  [15:0] PAD_DATA_IN_B,
+    
+    inout  PAD_BUSY,
+    inout  PAD_VALID,
+    inout  PAD_SERIAL_OUT,
+    
+    // Core Power and Ground Pads
+    inout  VDD_PAD, // 1.8V External Supply
+    inout  VSS_PAD  // 0V External Ground
+);
+
+    // Internal wires connecting the Pad Ring to the Core
+    wire core_clk;
+    wire core_reset;
+    wire core_start;
+    wire [15:0] core_data_in_a;
+    wire [15:0] core_data_in_b;
+    
+    wire core_busy;
+    wire core_valid;
+    wire core_serial_out;
+
+    // =========================================================================
+    // 1. INPUT PADS (Real World -> Core)
+    // Using Sky130 standard GPIO pads configured as inputs
+    // =========================================================================
+    
+    sky130_fd_io__top_gpiov2 PAD_IN_CLK (
+        .PAD(PAD_CLK), .Y(core_clk), .INOUT_EN(1'b1), .IN(1'b0), .OUT_EN(1'b0)
+    );
+    
+    sky130_fd_io__top_gpiov2 PAD_IN_RESET (
+        .PAD(PAD_RESET), .Y(core_reset), .INOUT_EN(1'b1), .IN(1'b0), .OUT_EN(1'b0)
+    );
+    
+    sky130_fd_io__top_gpiov2 PAD_IN_START (
+        .PAD(PAD_START), .Y(core_start), .INOUT_EN(1'b1), .IN(1'b0), .OUT_EN(1'b0)
+    );
+
+    // Instantiate 16 Input Pads for DATA_IN_A
+    genvar i;
+    generate
+        for (i = 0; i < 16; i = i + 1) begin : gen_pad_a
+            sky130_fd_io__top_gpiov2 PAD_IN_A (
+                .PAD(PAD_DATA_IN_A[i]), .Y(core_data_in_a[i]), .INOUT_EN(1'b1), .IN(1'b0), .OUT_EN(1'b0)
+            );
+        end
+    endgenerate
+
+    // Instantiate 16 Input Pads for DATA_IN_B
+    generate
+        for (i = 0; i < 16; i = i + 1) begin : gen_pad_b
+            sky130_fd_io__top_gpiov2 PAD_IN_B (
+                .PAD(PAD_DATA_IN_B[i]), .Y(core_data_in_b[i]), .INOUT_EN(1'b1), .IN(1'b0), .OUT_EN(1'b0)
+            );
+        end
+    endgenerate
+
+    // =========================================================================
+    // 2. OUTPUT PADS (Core -> Real World)
+    // Using Sky130 standard GPIO pads configured as outputs
+    // =========================================================================
+
+    sky130_fd_io__top_gpiov2 PAD_OUT_BUSY (
+        .PAD(PAD_BUSY), .IN(core_busy), .INOUT_EN(1'b0), .OUT_EN(1'b1)
+    );
+
+    sky130_fd_io__top_gpiov2 PAD_OUT_VALID (
+        .PAD(PAD_VALID), .IN(core_valid), .INOUT_EN(1'b0), .OUT_EN(1'b1)
+    );
+
+    sky130_fd_io__top_gpiov2 PAD_OUT_SERIAL (
+        .PAD(PAD_SERIAL_OUT), .IN(core_serial_out), .INOUT_EN(1'b0), .OUT_EN(1'b1)
+    );
+
+    // =========================================================================
+    // 3. POWER PADS
+    // =========================================================================
+    
+    sky130_fd_io__top_power_lvc_wpad PAD_POWER (
+        .VDDIO(VDD_PAD)
+    );
+    
+    sky130_fd_io__top_ground_lvc_wpad PAD_GROUND (
+        .VSSIO(VSS_PAD)
+    );
+
+    // =========================================================================
+    // 4. INSTANTIATE THE CORE MACRO
+    // =========================================================================
+    
+    dsp_engine core_inst (
+        .clk(core_clk),
+        .reset(core_reset),
+        .start(core_start),
+        .data_in_a(core_data_in_a),
+        .data_in_b(core_data_in_b),
+        .busy(core_busy),
+        .valid(core_valid),
+        .serial_out(core_serial_out)
+    );
+
+endmodule
+
+
+
+
+
+
+// io_blackboxes.v
+// Empty stubs so Yosys knows the I/O pad pinouts without parsing the complex PDK models
+
+(* blackbox *)
+module sky130_fd_io__top_gpiov2 (
+    inout  PAD,
+    output Y,
+    input  INOUT_EN,
+    input  IN,
+    input  OUT_EN
+);
+endmodule
+
+(* blackbox *)
+module sky130_fd_io__top_power_lvc_wpad (
+    inout VDDIO
+);
+endmodule
+
+(* blackbox *)
+module sky130_fd_io__top_ground_lvc_wpad (
+    inout VSSIO
+);
+endmodule
+
+
+
+
+
+
+# 1. READ RTL
+read_verilog dsp_chip_top.v
+read_verilog dsp_engine.v
+read_verilog io_blackboxes.v
+
+# 2. ELABORATE HIERARCHY
+hierarchy -check -top dsp_chip_top
+
+# 3. HIGH-LEVEL SYNTHESIS
+synth -top dsp_chip_top
+
+# 4. TECHNOLOGY MAPPING (Flip-Flops & Gates)
+dfflibmap -liberty /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+abc -liberty /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+
+# 5. TIE CELL INSERTION (Fix for TritonRoute GROUND Error)
+hilomap -hicell sky130_fd_sc_hd__conb_1 HI -locell sky130_fd_sc_hd__conb_1 LO
+
+# 6. CLEANUP & OPTIMIZATION
+clean -purge
+
+# 7. WRITE GATE-LEVEL NETLIST
+write_verilog -noattr sky_netlist_dsp_chip_top.v
+show -colors 3 dsp_chip_top
+
+# 8. PRINT STATISTICS
+stat -liberty /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+
+
+
+# ---> dsp_engine.v   <---
+//  add  dsp_chip_top.v  along with dsp_engine.v  both files in yosys script and then yosys. 
+
+
+
+
+# 1. SETUP
+set_thread_count 7
+
+# 2. READ LIBRARIES & NETLIST
+read_lef /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef
+read_lef /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lef/sky130_fd_sc_hd.lef
+
+# ---> ADDED I/O PAD LEFS <---
+read_lef /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_io/lef/sky130_fd_io.lef
+read_lef /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_io/lef/sky130_ef_io.lef
+
+# Read Timing Libraries
+read_liberty /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+# ---> ADDED I/O PAD TIMING <---
+read_liberty /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_io/lib/sky130_fd_io__top_gpiov2_tt_tt_025C_1v80_3v30.lib
+
+
+
+read_liberty /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+read_verilog sky_netlist_dsp_chip_top.v
+
+link_design dsp_chip_top
+read_sdc dsp_chip_top.sdc
+
+# 3. DYNAMIC FLOORPLAN (Expanded Die & Core Area)
+initialize_floorplan -die_area "0 0 1200 1200" \
+                     -core_area "100 100 1100 1100" \
+                     -site unithd
+
+# 4. EXPLICIT ROUTING TRACKS
+make_tracks li1 -x_offset 0.23 -x_pitch 0.46 -y_offset 0.17 -y_pitch 0.34
+make_tracks met1 -x_offset 0.17 -x_pitch 0.34 -y_offset 0.17 -y_pitch 0.34
+make_tracks met2 -x_offset 0.23 -x_pitch 0.46 -y_offset 0.23 -y_pitch 0.46
+make_tracks met3 -x_offset 0.34 -x_pitch 0.68 -y_offset 0.34 -y_pitch 0.68
+make_tracks met4 -x_offset 0.46 -x_pitch 0.92 -y_offset 0.46 -y_pitch 0.92
+make_tracks met5 -x_offset 1.70 -x_pitch 3.40 -y_offset 1.70 -y_pitch 3.40
+
+# 5. PINS AND TAPCELLS
+place_pins -hor_layers {met3} -ver_layers {met2}
+
+# Insert Tapcells (MANDATORY for Sky130 PDN anchoring)
+tapcell -distance 14 -tapcell_master sky130_fd_sc_hd__tapvpwrvgnd_1
+
+# Connect standard cell power pins
+add_global_connection -net VPWR -inst_pattern .* -pin_pattern VPWR -power
+add_global_connection -net VGND -inst_pattern .* -pin_pattern VGND -ground
+add_global_connection -net VPWR -inst_pattern .* -pin_pattern one_ -power
+add_global_connection -net VGND -inst_pattern .* -pin_pattern zero_ -ground
+global_connect
+
+# 6. POWER DELIVERY NETWORK (PDN) GENERATION
+set_voltage_domain -name CORE -power VPWR -ground VGND
+define_pdn_grid -name stdcell_grid -starts_with POWER -voltage_domain CORE -pins {met4 met5}
+
+# THE FIX: Removed pitch/offset and added -followpins for met1!
+add_pdn_stripe -grid stdcell_grid -layer met1 -width 0.48 -followpins -starts_with POWER
+add_pdn_stripe -grid stdcell_grid -layer met4 -width 1.6 -pitch 27.2 -offset 13.6 -starts_with POWER
+add_pdn_stripe -grid stdcell_grid -layer met5 -width 1.6 -pitch 27.2 -offset 13.6 -starts_with POWER
+
+add_pdn_connect -grid stdcell_grid -layers {met1 met4}
+add_pdn_connect -grid stdcell_grid -layers {met4 met5}
+pdngen
+
+# 7. PLACEMENT & CTS
+global_placement
+detailed_placement
+set_wire_rc -layer met3
+clock_tree_synthesis -buf_list {sky130_fd_sc_hd__clkbuf_1 sky130_fd_sc_hd__clkbuf_2 sky130_fd_sc_hd__clkbuf_4} -root_buf sky130_fd_sc_hd__clkbuf_4
+
+# 8. TIMING OPTIMIZATION & LEGALIZATION
+estimate_parasitics -placement
+repair_timing -setup
+repair_timing -hold
+detailed_placement
+
+# 9. ROUTING
+global_route
+detailed_route
+
+# 10. PARASITIC EXTRACTION (OpenRCX)
+define_process_corner -ext_model_index 0 X
+extract_parasitics -ext_model_file /home/ritiz/pdk/sky130A/libs.tech/openlane/rules.openrcx.sky130A.nom.calibre
+write_spef dsp_chip_top_sky_routed.spef
+
+# 11. SIGN-OFF TIMING & ANALYSIS (OpenSTA)
+report_checks -path_delay min_max
+report_wns
+report_tns
+report_power
+report_design_area
+
+# 12. FINAL EXPORT
+write_def dsp_chip_top_sky_routed.def
+write_db dsp_chip_top_sky_routed.odb
+write_verilog -include_pwr_gnd pnr_netlist_dsp_chip_top_skyt.v
+
+
+
+
+
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////
+
+
+////////////////////////////////////////////////////////////////////////////// 
+GDS FILE  3D  VIEW    GDS FILE  3D  VIEW         GDS FILE  3D  VIEW 
+/////////////////////////////////////////////////////////////////////////////
+
+
+klayout -l /home/ritiz/pdk/sky130A/libs.tech/klayout/tech/sky130A.lyp divider_sky_tapeout_final.gds
+
+klayout divider_sky_tapeout_final.gds
+
+
+klayout -l /home/ritiz/pdk/sky130A/libs.tech/klayout/tech/sky130A.lyp dsp_engine_tapeout_magic_final.gds
+
+# klayout  dsp_engine_tapeout_magic_final.gds
+
+visit ----->  tinytapeout gds viewer   website for 3d view 
+
+
+
+
+
+

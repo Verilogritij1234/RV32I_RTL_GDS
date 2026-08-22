@@ -1,0 +1,1 @@
+ iverilog -o cpu_top_tb.out cpu_top.v alu_control.v ALU.v control_unit.v parameterized_RAM.v  regfile.v rom.v  cpu_top_tb.v

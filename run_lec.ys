@@ -1,0 +1,37 @@
+
+# run_lec.ys
+
+# 1. Load Standard Cell Logic from Liberty
+read_liberty -lib /home/ritiz/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+
+# Load our clean, auto-generated blackbox declarations
+read_verilog -lib sky130_hd_blackboxes.v
+
+# 2. Load ORIGINAL RTL (The "Gold" Standard)
+read_verilog cpu_top.v
+read_verilog alu_control.v
+read_verilog ALU.v
+read_verilog control_unit.v
+read_verilog parameterized_RAM.v
+read_verilog  regfile.v 
+read_verilog rom.v 
+prep -top cpu_top
+splitnets -ports; design -stash gold
+
+# 3. Load SYNTHESIZED NETLIST (The "Gate" Version)
+read_verilog sky_netlist_cpu_top.v
+prep -top cpu_top
+splitnets -ports; design -stash gate
+
+# 4. Prove Equivalence
+design -copy-from gold -as gold dsp_engine
+design -copy-from gate -as gate dsp_engine
+equiv_make gold gate equiv
+prep -top equiv
+
+puts "===================================================="
+puts "              RUNNING FORMAL PROOFS                 "
+puts "===================================================="
+equiv_simple
+equiv_induct
+equiv_status -assert
