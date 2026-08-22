@@ -37,14 +37,14 @@ This repository contains the complete RTL-to-GDS2 physical design flow for **"Th
 
 | Parameter | Extracted Value | Status / Note |
 | :--- | :--- | :--- |
-| **Technology Node** | SkyWater 130nm CMOS | Open-source foundry standard[cite: 1] |
-| **Core Area** | 219,725.734 $\mu\text{m}^2$ | Core boundary layout[cite: 1] |
-| **Standard Cell Area** | 55,501 $\mu\text{m}^2$ | 25.055% utilization ratio[cite: 1] |
-| **Total Instances** | 6,247 (3,289 logic cells) | High-density leaf instances[cite: 1] |
-| **Target Clock Frequency** | 100 MHz (10.00 ns period) | Fully constrained via SDC file[cite: 1] |
-| **Worst Setup Slack** | +0.67 ns | MET (Max delay path)[cite: 1] |
-| **Worst Hold Slack (-40°C)** | +0.36 ns | MET (Fast corner sign-off)[cite: 1] |
-| **Total Power Consumption**| 6.65 mW | Dominated by sequential/clock power[cite: 1] |
+| **Technology Node** | SkyWater 130nm CMOS | Open-source foundry standard |
+| **Core Area** | 219,725.734 $\mu\text{m}^2$ | Core boundary layout |
+| **Standard Cell Area** | 55,501 $\mu\text{m}^2$ | 25.055% utilization ratio |
+| **Total Instances** | 6,247 (3,289 logic cells) | High-density leaf instances|
+| **Target Clock Frequency** | 100 MHz (10.00 ns period) | Fully constrained via SDC file |
+| **Worst Setup Slack** | +0.67 ns | MET (Max delay path) |
+| **Worst Hold Slack (-40°C)** | +0.36 ns | MET (Fast corner sign-off) |
+| **Total Power Consumption**| 6.65 mW | Dominated by sequential/clock power |
 
 ---
 
