@@ -15,10 +15,6 @@ gds write cpu_top_sky_tapeout.gds
 
 quit -noprompt
 
-# command: magic -dnull -noconsole -rcfile /home/ritiz/pdk/sky130A/libs.tech/magic/sky130A.magicrc gds.tcl
 
-# klayout -l /home/ritiz/pdk/sky130A/libs.tech/klayout/tech/sky130A.lyp cpu_top_sky_tapeout.gds
-
-# klayout cpu_top_sky_tapeout.gds
 
 
